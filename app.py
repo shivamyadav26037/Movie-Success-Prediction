@@ -3,7 +3,7 @@ import pandas as pd
 import joblib
 import os
 
-# --- APP ASSETS LOAD KARNA ---
+# --- ASSETS LOAD KARNA ---
 @st.cache_resource
 def load_assets():
     if os.path.exists('movie_expert_model.pkl') and os.path.exists('expert_encoders.pkl'):
@@ -14,37 +14,38 @@ def load_assets():
 
 model, encoders = load_assets()
 
-# --- UI INTERFACE ---
+# --- APP UI (SIMPLE & MINIMAL) ---
+st.set_page_config(page_title="Movie Success Predictor", layout="centered")
+
 st.title("Movie Success Predictor")
-st.write("Enter the movie details below to get a box office prediction.")
+st.write("Fill in the details below to analyze movie performance.")
 
 if model is None:
-    st.error("Model files not found. Please run the training script first.")
+    st.error("Model files not found. Please run the training script (trainer.py) first.")
 else:
     # --- INPUT SECTION ---
-    # Simple vertical layout without complex columns or colors
-    
-    st.header("Movie Details")
-    genre = st.selectbox("Genre", sorted(encoders['Genre'].classes_))
-    actor = st.selectbox("Actor", sorted(encoders['Actor'].classes_))
-    director = st.selectbox("Director", sorted(encoders['Director'].classes_))
-    country = st.selectbox("Country", sorted(encoders['Country'].classes_))
-    
-    st.divider()
-    
-    st.header("Parameters")
+    st.header("1. Production Details")
+    col1, col2 = st.columns(2)
+    with col1:
+        genre = st.selectbox("Genre", sorted(encoders['Genre'].classes_))
+        actor = st.selectbox("Actor", sorted(encoders['Actor'].classes_))
+        country = st.selectbox("Country", sorted(encoders['Country'].classes_))
+    with col2:
+        director = st.selectbox("Director", sorted(encoders['Director'].classes_))
+        stability = st.selectbox("Screen Stability", sorted(encoders['Screen_Stability'].classes_))
+
+    st.header("2. Financials & Release")
     budget = st.slider("Budget (Million USD)", 1, 500, 50)
     screens = st.number_input("Number of Screens", min_value=100, max_value=10000, value=1200)
     weeks = st.slider("Weeks in Theater", 1, 15, 4)
-    stability = st.selectbox("Screen Stability", sorted(encoders['Screen_Stability'].classes_))
     price = st.slider("Ticket Price ($)", 5, 100, 15)
     shows = st.slider("Shows per Day", 1, 24, 8)
 
     st.divider()
 
     # --- PREDICTION ACTION ---
-    if st.button("Predict Result"):
-        # Data prepare karna
+    if st.button("Predict Result", use_container_width=True):
+        # Data prepare karna model ke liye
         input_data = pd.DataFrame([{
             'Genre': encoders['Genre'].transform([genre])[0],
             'Actor': encoders['Actor'].transform([actor])[0],
@@ -58,36 +59,42 @@ else:
             'Shows_per_Day': shows
         }])
 
-        # Prediction
-        prediction = model.predict(input_data)[0]
+        # Model Prediction (for Confidence)
         prob = model.predict_proba(input_data)[0][1]
 
-        # Calculation logic
+        # Financial Calculation (Consistent with Training Logic)
         stab_map = {'Drop Fast': 0.45, 'Slow Drop': 0.85, 'Stable': 1.25, 'Growing': 1.9}
+        # Base Calculation
         est_rev = (screens * shows * 35 * price * weeks * stab_map[stability]) / 1000000
         
-        # Multipliers
+        # Applying Multipliers
         if 'Animation' in genre or '(Voice)' in actor:
             est_rev *= 1.25
+        if weeks > 6:
+            est_rev *= 1.2
             
         profit_loss = est_rev - budget
-        rating = ((weeks * 0.4) + (2.5 if prediction == 1 else 0) + 3.5)
+        
+        # Final Status based on Financial Reality
+        # Agar Revenue >= Budget, toh HIT. Warna FLOP.
+        is_hit = profit_loss >= 0
+        
+        # Rating Prediction Logic
+        rating = ((weeks * 0.4) + (2.5 if is_hit else 0) + 3.5)
         rating = min(max(rating, 1.0), 10.0)
 
-        # --- RESULTS (SIMPLE DISPLAY) ---
+        # --- RESULTS DISPLAY ---
         st.subheader("Analysis Results")
         
-        if prediction == 1:
-            st.success(f"Status: HIT (Confidence: {prob*100:.1f}%)")
+        if is_hit:
+            st.success(f"Status: HIT (Model Confidence: {prob*100:.1f}%)")
         else:
-            st.error(f"Status: FLOP (Confidence: {(1-prob)*100:.1f}%)")
+            st.error(f"Status: FLOP (Model Confidence: {(1-prob)*100:.1f}%)")
 
-        # Stats dikhane ke liye simple columns
         col1, col2 = st.columns(2)
-        col1.metric("Est. Profit/Loss", f"{profit_loss:+.2f} M$")
+        # Green color for profit, Red for loss
+        col1.metric("Est. Profit/Loss", f"{profit_loss:+.2f} M$", delta=f"{profit_loss:.2f} M$")
         col2.metric("Audience Rating", f"{rating:.1f} / 10")
 
-        st.info(f"Estimated Lifetime Revenue: ${est_rev:.2f} Million")
+        st.info(f"Estimated Lifetime Revenue: **${est_rev:.2f} Million**")
 
-st.divider()
-st.caption("Minimalist AI Predictor | Trained on 5,000 unique records.")
